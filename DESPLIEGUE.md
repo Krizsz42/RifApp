@@ -38,11 +38,18 @@ Los cambios se sincronizan en tiempo real entre todos los dispositivos.
 
 Esto crea:
 
-- `public.config`, `public.numeros`, `public.abonos`, `public.sorteos`.
+- `public.config`, `public.numeros`, `public.abonos`, `public.sorteos` y
+  `public.premios`.
 - Las funciones RPC que usa la app.
 - Las políticas RLS de solo lectura para el público.
 - El esquema privado `private` con el PIN, las sesiones y los intentos.
-- La publicación de tiempo real para `numeros`, `config` y `sorteos`.
+- La publicación de tiempo real para `numeros`, `config`, `sorteos` y
+  `premios`.
+
+> **Si el sitio ya está publicado:** vuelve a ejecutar el `schema.sql`
+> actualizado antes de subir el nuevo `app.js`. El script es idempotente:
+> agrega la tabla `premios`, la columna `excluir_siguiente` y las funciones
+> nuevas sin borrar los datos existentes.
 
 ## 3. Definir el PIN compartido
 
@@ -136,9 +143,34 @@ window.RIFA_CONFIG = {
 5. Si el número no cambia en el otro dispositivo:
    - Revisa el indicador de la barra superior: debe decir **● En vivo**.
    - En Supabase, ve a **Database → Replication** y confirma que `numeros`,
-     `config` y `sorteos` están publicados en `supabase_realtime`.
+     `config`, `sorteos` y `premios` están publicados en `supabase_realtime`.
    - Vuelve a ejecutar `supabase/schema.sql` para asegurar la publicación.
    - Mira la consola del navegador (F12) por si hay errores de `config.js`.
+
+### Sorteos con varios premios
+
+1. En **Sorteo → Premios**, escribe el nombre de un premio y pulsa
+   **Agregar premio**. Puedes repetir el proceso para tener una lista.
+2. En **Premio a sortear**, elige uno de los premios pendientes y pulsa
+   **Realizar sorteo**.
+3. Cuando alguien gana, el resultado muestra la opción **Este ganador no
+   participa en los siguientes sorteos**, marcada por defecto. Si la
+   desmarcas, esa persona podrá volver a salir; también puedes cambiarla
+   desde el historial.
+4. Para identificar a la persona se usa el teléfono. Si el número no tiene
+   teléfono, se usa el nombre normalizado. Si una persona tiene varios
+   números con el mismo teléfono, todos quedan fuera.
+5. El premio sorteado queda enlazado a ese sorteo. Si eliminas el sorteo del
+   historial, el premio vuelve a quedar pendiente. No se puede editar ni
+   eliminar un premio mientras esté sorteado.
+6. Si la lista de premios está vacía, se usa el **premio general** de
+   **Configurar**. Si la lista tiene premios, se sortea el que elijas.
+7. Si todos los números disponibles ya ganaron, la app avisa. Desmarca
+   **No repite** en el historial o agrega más números para continuar.
+
+La lista de premios y el historial son visibles para el público; los botones
+para agregar, editar, eliminar y sortear solo aparecen con sesión de
+administrador.
 
 ## 7. Cómo funciona la seguridad
 
@@ -184,3 +216,26 @@ pasar esos datos, se puede preparar un script de importación.
 `rifa.db` está en `.gitignore` para no volver a subirlo, porque contiene datos
 de la versión anterior. Si ya estaba en tu repositorio, quítalo del control de
 versiones con `git rm --cached rifa.db`; el archivo local se conserva.
+
+## 10. Actualizar un sitio que ya está publicado
+
+Esta versión agrega la lista de premios y la opción **No repite**. Para
+actualizar el sitio que ya está en línea:
+
+1. En Supabase, abre **SQL Editor** y ejecuta de nuevo **todo**
+   `supabase/schema.sql`. Es idempotente: conserva los números, abonos,
+   sorteos y el PIN. Agregará `public.premios`, la columna
+   `excluir_siguiente`, las funciones nuevas y la publicación de Realtime.
+2. Publica el nuevo frontend:
+   - Si Netlify está conectado a GitHub, haz `git push` y espera el deploy.
+   - Si usas Netlify Drop, ejecuta `node scripts/build.mjs` y sube `dist/`.
+3. Entra a la app con el PIN y prueba **Sorteo → Premios**. Si la lista está
+   vacía, el sorteo seguirá usando el premio general de **Configurar**.
+
+Los sorteos que ya existían antes de la actualización quedan marcados como
+**No repite**. Si quieres que alguno de esos ganadores vuelva a participar,
+desmarca la casilla en el historial.
+
+> Ejecuta el SQL **antes** de publicar el frontend nuevo. Si publicas primero,
+> la app seguirá mostrando la rifa, pero los botones para agregar premios
+> fallarán hasta que actualices el esquema.

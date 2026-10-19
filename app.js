@@ -22,6 +22,7 @@ const App = {
   tiempoReal: false,
   ultimaCarga: 0,
   sorteando: false,
+  ultimoSorteoId: null,
   admin: false,
   token: null,
   dispositivo: "",
@@ -49,6 +50,16 @@ function norm(valor) {
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
+}
+
+// Debe coincidir con private.clave_persona() en Supabase: teléfono si existe;
+// si no, nombre normalizado. Se usa solo para la animación previa al sorteo;
+// la decisión final siempre la toma la función RPC.
+function clavePersona(nombre, telefono) {
+  const tel = String(telefono ?? "").replace(/\D/g, "");
+  if (tel) return `tel:${tel}`;
+  const nom = norm(nombre).replace(/[^a-z0-9]/g, "");
+  return nom ? `nom:${nom}` : null;
 }
 
 function dinero(valor) {
@@ -456,18 +467,28 @@ function aplicarEstado(datos) {
 
 function renderTodo() {
   const cfg = App.datos.config;
+  const premios = App.datos.premios || [];
   document.title = cfg.rifa_nombre || "Rifa";
   $("#tituloRifa").textContent = cfg.rifa_nombre || "Rifa";
 
   const partes = [];
-  if (cfg.premio) partes.push(`Premio: ${cfg.premio}`);
+  if (premios.length) {
+    const pendientes = premios.filter((p) => !p.sorteo_id).length;
+    partes.push(
+      `${pendientes} de ${premios.length} premio${premios.length === 1 ? "" : "s"} por sortear`
+    );
+  } else if (cfg.premio) {
+    partes.push(`Premio: ${cfg.premio}`);
+  }
   partes.push(`${cfg.total_numeros} números`);
   partes.push(`${dinero(cfg.precio)} por número`);
   $("#subtituloRifa").textContent = partes.join(" · ");
 
   renderStats();
   renderGrid();
+  renderPremios();
   renderHistorialSorteos();
+  sincronizarResultadoSorteo();
   aplicarFiltro();
   actualizarBarraSeleccion();
   $("#btnPagoCompleto").textContent = `Pagado (${dinero(cfg.precio)} c/u)`;
@@ -500,6 +521,112 @@ function renderGrid() {
   $("#grid").innerHTML = html;
 }
 
+function renderPremios() {
+  const premios = App.datos.premios || [];
+  const sorteos = App.datos.sorteos || [];
+  const cont = $("#listaPremios");
+  const resumen = $("#premiosResumen");
+  if (!cont) return;
+
+  const sorteados = premios.filter((p) => p.sorteo_id).length;
+  const pendientes = premios.length - sorteados;
+
+  if (resumen) {
+    resumen.textContent = premios.length
+      ? `${pendientes} pendiente${pendientes === 1 ? "" : "s"} · ${sorteados} sorteado${sorteados === 1 ? "" : "s"}`
+      : "";
+  }
+
+  if (!premios.length) {
+    cont.innerHTML = `<p class="muted small">Todavía no hay premios en la lista.${App.admin ? " Agrega el primero arriba." : ""} Se usará el premio general de la configuración.</p>`;
+    renderSelectPremio();
+    return;
+  }
+
+  cont.innerHTML = premios.map((p) => {
+    const sorteo = p.sorteo_id
+      ? sorteos.find((s) => Number(s.id) === Number(p.sorteo_id))
+      : null;
+    const detalle = p.sorteo_id
+      ? sorteo
+        ? `Ganado por #${sorteo.numero} — ${esc(sorteo.nombre)}`
+        : "Sorteado"
+      : "Pendiente";
+    const acciones = p.sorteo_id
+      ? ""
+      : `<button type="button" class="mini" data-editar-premio="${p.id}">Editar</button>
+         <button type="button" class="mini danger" data-borrar-premio="${p.id}">Eliminar</button>`;
+    return `
+      <div class="premio-item${p.sorteo_id ? " sorteado" : ""}">
+        <div class="premio-info">
+          <strong>${esc(p.nombre)}</strong>
+          <span class="muted">${detalle}</span>
+        </div>
+        <div class="premio-acciones solo-admin">${acciones}</div>
+      </div>`;
+  }).join("");
+
+  renderSelectPremio();
+}
+
+function renderSelectPremio() {
+  const select = $("#sorteoPremio");
+  if (!select) return;
+
+  const premios = App.datos?.premios || [];
+  const pendientes = premios.filter((p) => !p.sorteo_id);
+  const anterior = select.value;
+
+  if (premios.length) {
+    if (pendientes.length) {
+      select.innerHTML =
+        `<option value="">Selecciona un premio…</option>` +
+        pendientes.map((p) => `<option value="${p.id}">${esc(p.nombre)}</option>`).join("");
+      if (anterior && pendientes.some((p) => String(p.id) === anterior)) {
+        select.value = anterior;
+      } else {
+        select.value = String(pendientes[0].id);
+      }
+    } else {
+      select.innerHTML = `<option value="">No quedan premios pendientes</option>`;
+    }
+  } else {
+    const general = String(App.datos?.config?.premio || "").trim();
+    select.innerHTML = `<option value="">Premio general${general ? `: ${esc(general)}` : ""}</option>`;
+  }
+
+  select.disabled = !pendientes.length;
+
+  const boton = $("#btnSortear");
+  if (boton && !App.sorteando) {
+    const habilitado = pendientes.length > 0 || premios.length === 0;
+    boton.disabled = !habilitado;
+    boton.title = habilitado
+      ? ""
+      : "Agrega un premio o elimina un sorteo del historial para volver a sortear";
+  }
+}
+
+function sincronizarResultadoSorteo() {
+  const panel = $("#resultadoSorteo");
+  const input = $("#excluirGanador");
+  if (!panel || !input || panel.classList.contains("hidden") || !App.ultimoSorteoId) return;
+
+  const sorteo = (App.datos?.sorteos || []).find(
+    (s) => Number(s.id) === Number(App.ultimoSorteoId)
+  );
+
+  if (!sorteo) {
+    panel.classList.add("hidden");
+    App.ultimoSorteoId = null;
+    return;
+  }
+
+  input.checked = Boolean(sorteo.excluir_siguiente);
+  input.dataset.id = String(sorteo.id);
+  input.disabled = false;
+}
+
 function renderHistorialSorteos() {
   const sorteos = App.datos.sorteos || [];
   const cont = $("#historialSorteos");
@@ -510,11 +637,19 @@ function renderHistorialSorteos() {
   cont.innerHTML = sorteos.map((s) => `
     <div class="sorteo-item">
       <span class="sorteo-num">${s.numero}</span>
-      <div>
+      <div class="sorteo-datos">
         <strong>${esc(s.nombre)}</strong>
-        <span class="muted">${esc(s.fecha)}${s.premio ? " · " + esc(s.premio) : ""}</span>
+        <span class="muted">${esc(s.fecha)}</span>
+        ${s.premio ? `<span class="sorteo-premio">🏆 ${esc(s.premio)}</span>` : ""}
       </div>
-      <button type="button" class="borrar-sorteo solo-admin" data-borrar-sorteo="${s.id}" title="Eliminar este sorteo del historial" aria-label="Eliminar sorteo">🗑</button>
+      ${s.excluir_siguiente ? `<span class="etiqueta-no-repite solo-public">No repite</span>` : ""}
+      <div class="sorteo-acciones">
+        <label class="check mini-check solo-admin" title="Si está marcado, esta persona no participa en los próximos sorteos">
+          <input type="checkbox" data-excluir-sorteo="${s.id}" ${s.excluir_siguiente ? "checked" : ""}>
+          <span>No repite</span>
+        </label>
+        <button type="button" class="borrar-sorteo solo-admin" data-borrar-sorteo="${s.id}" title="Eliminar este sorteo del historial" aria-label="Eliminar sorteo">🗑</button>
+      </div>
     </div>`).join("");
 }
 
@@ -655,12 +790,45 @@ async function realizarSorteo() {
   if (App.sorteando || !App.datos) return;
 
   const soloPagados = $("#soloPagados").checked;
-  const candidatos = App.datos.numeros.filter((n) =>
+  const premios = App.datos.premios || [];
+  const premioId = premios.length
+    ? Number($("#sorteoPremio")?.value || 0)
+    : null;
+  const premio = premioId
+    ? premios.find((p) => Number(p.id) === premioId && !p.sorteo_id)
+    : null;
+
+  if (premios.length && !premio) {
+    toast("Selecciona el premio que vas a sortear", true);
+    return;
+  }
+
+  const base = App.datos.numeros.filter((n) =>
     soloPagados ? n.estado === "pagado" : n.estado !== "disponible"
   );
 
-  if (!candidatos.length) {
+  if (!base.length) {
     toast(soloPagados ? "No hay números pagados para sortear" : "Todavía no hay números vendidos", true);
+    return;
+  }
+
+  // Refleja en la animación la misma exclusión que aplica el servidor.
+  const excluidos = new Set(
+    (App.datos.sorteos || [])
+      .filter((s) => s.excluir_siguiente)
+      .map((s) => clavePersona(s.nombre, s.telefono))
+      .filter(Boolean)
+  );
+  const candidatos = base.filter((n) => {
+    const clave = clavePersona(n.nombre, n.telefono);
+    return !clave || !excluidos.has(clave);
+  });
+
+  if (!candidatos.length) {
+    toast(
+      'Todos los números para este sorteo ya ganaron. Desmarca "No repite" en el historial o agrega más números.',
+      true
+    );
     return;
   }
 
@@ -672,10 +840,14 @@ async function realizarSorteo() {
   const numEl = $("#ganadorNumero");
   const nomEl = $("#ganadorNombre");
   const extraEl = $("#ganadorExtra");
+  const excluirEl = $("#excluirGanador");
   panel.classList.remove("hidden");
   numEl.textContent = "—";
   nomEl.textContent = "";
   extraEl.textContent = "Sorteando…";
+  excluirEl.checked = false;
+  excluirEl.disabled = true;
+  excluirEl.dataset.id = "";
 
   let indice = Math.floor(Math.random() * candidatos.length);
   const intervalo = setInterval(() => {
@@ -686,10 +858,13 @@ async function realizarSorteo() {
 
   const inicio = Date.now();
   try {
-    const resultado = await rpc("realizar_sorteo", {
+    const parametros = {
       p_token: App.token,
       p_solo_pagados: soloPagados,
-    });
+    };
+    if (premioId) parametros.p_premio_id = premioId;
+
+    const resultado = await rpc("realizar_sorteo", parametros);
 
     const restante = Math.max(0, 1400 - (Date.now() - inicio));
     await new Promise((resolver) => setTimeout(resolver, restante));
@@ -704,15 +879,52 @@ async function realizarSorteo() {
       ganador.fecha,
     ].filter(Boolean).join(" · ");
 
+    App.ultimoSorteoId = ganador.id;
+    excluirEl.checked = Boolean(ganador.excluir_siguiente);
+    excluirEl.disabled = false;
+    excluirEl.dataset.id = String(ganador.id);
+
     aplicarEstado(resultado.estado);
     toast(`¡Ganador: número ${ganador.numero} — ${ganador.nombre}!`);
   } catch (error) {
     clearInterval(intervalo);
     panel.classList.add("hidden");
+    App.ultimoSorteoId = null;
     toast(error.message, true);
   } finally {
     App.sorteando = false;
-    boton.disabled = false;
+    renderSelectPremio();
+  }
+}
+
+async function actualizarExclusionSorteo(id, excluir, input) {
+  if (!App.admin) {
+    if (input) input.checked = !excluir;
+    abrirAdmin();
+    return;
+  }
+  if (!id) return;
+
+  if (input) input.disabled = true;
+
+  try {
+    const resultado = await rpc("actualizar_exclusion_sorteo", {
+      p_token: App.token,
+      p_id: id,
+      p_excluir: excluir,
+    });
+    aplicarEstado(resultado.estado);
+    toast(
+      excluir
+        ? "Ese ganador no participará en los próximos sorteos"
+        : "Ese ganador podrá volver a participar"
+    );
+  } catch (error) {
+    if (input) input.checked = !excluir;
+    toast(error.message, true);
+    cargarEstado();
+  } finally {
+    if (input) input.disabled = false;
   }
 }
 
@@ -881,6 +1093,11 @@ function conectarTiempoReal() {
     .on(
       "postgres_changes",
       { event: "*", schema: "public", table: "sorteos" },
+      programarRefresco
+    )
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "premios" },
       programarRefresco
     )
     .subscribe((estado) => {
@@ -1065,7 +1282,118 @@ function conectarEventos() {
     }
   });
 
+  $("#formPremio").addEventListener("submit", async (evento) => {
+    evento.preventDefault();
+    if (!App.admin) {
+      abrirAdmin();
+      return;
+    }
+
+    const nombre = $("#nuevoPremio").value.trim();
+    if (!nombre) {
+      toast("Escribe el nombre del premio", true);
+      return;
+    }
+
+    const boton = $("#btnAgregarPremio");
+    boton.disabled = true;
+
+    try {
+      const resultado = await rpc("agregar_premio", {
+        p_token: App.token,
+        p_nombre: nombre,
+      });
+      $("#formPremio").reset();
+      aplicarEstado(resultado.estado);
+      const select = $("#sorteoPremio");
+      if (select && resultado.id) select.value = String(resultado.id);
+      toast("Premio agregado a la lista");
+    } catch (error) {
+      toast(error.message, true);
+    } finally {
+      boton.disabled = false;
+    }
+  });
+
+  $("#listaPremios").addEventListener("click", async (evento) => {
+    const botonEditar = evento.target.closest("[data-editar-premio]");
+    const botonBorrar = evento.target.closest("[data-borrar-premio]");
+
+    if (botonEditar) {
+      if (!App.admin) {
+        abrirAdmin();
+        return;
+      }
+      const id = Number(botonEditar.dataset.editarPremio);
+      const premio = (App.datos?.premios || []).find((p) => Number(p.id) === id);
+      if (!premio) return;
+
+      const nombre = prompt("Nuevo nombre del premio:", premio.nombre);
+      if (nombre === null) return;
+
+      const limpio = nombre.trim();
+      if (!limpio) {
+        toast("El nombre del premio no puede quedar vacío", true);
+        return;
+      }
+      if (limpio === premio.nombre) return;
+
+      botonEditar.disabled = true;
+      try {
+        const resultado = await rpc("editar_premio", {
+          p_token: App.token,
+          p_id: id,
+          p_nombre: limpio,
+        });
+        aplicarEstado(resultado.estado);
+        toast("Premio actualizado");
+      } catch (error) {
+        toast(error.message, true);
+      } finally {
+        botonEditar.disabled = false;
+      }
+      return;
+    }
+
+    if (botonBorrar) {
+      if (!App.admin) {
+        abrirAdmin();
+        return;
+      }
+      const id = Number(botonBorrar.dataset.borrarPremio);
+      const premio = (App.datos?.premios || []).find((p) => Number(p.id) === id);
+      if (!premio) return;
+      if (!confirm(`¿Eliminar el premio "${premio.nombre}" de la lista?`)) return;
+
+      botonBorrar.disabled = true;
+      try {
+        const resultado = await rpc("eliminar_premio", {
+          p_token: App.token,
+          p_id: id,
+        });
+        aplicarEstado(resultado.estado);
+        toast("Premio eliminado");
+      } catch (error) {
+        toast(error.message, true);
+      } finally {
+        botonBorrar.disabled = false;
+      }
+    }
+  });
+
   $("#btnSortear").addEventListener("click", realizarSorteo);
+
+  $("#excluirGanador").addEventListener("change", (evento) => {
+    const input = evento.target;
+    const id = Number(input.dataset.id || App.ultimoSorteoId || 0);
+    actualizarExclusionSorteo(id, input.checked, input);
+  });
+
+  $("#historialSorteos").addEventListener("change", (evento) => {
+    const input = evento.target.closest("[data-excluir-sorteo]");
+    if (!input) return;
+    actualizarExclusionSorteo(Number(input.dataset.excluirSorteo), input.checked, input);
+  });
 
   $("#historialSorteos").addEventListener("click", async (evento) => {
     const boton = evento.target.closest("[data-borrar-sorteo]");
@@ -1076,7 +1404,7 @@ function conectarEventos() {
     }
 
     const id = Number(boton.dataset.borrarSorteo);
-    if (!confirm("¿Eliminar este sorteo del historial?\n\nSolo se borra el registro del sorteo; los números y los pagos no cambian.")) return;
+    if (!confirm("¿Eliminar este sorteo del historial?\n\nSolo se borra el registro del sorteo; los números y los pagos no cambian. Si tenía un premio de la lista, vuelve a quedar pendiente.")) return;
 
     boton.disabled = true;
     try {
@@ -1084,7 +1412,10 @@ function conectarEventos() {
         p_token: App.token,
         p_id: id,
       });
-      $("#resultadoSorteo").classList.add("hidden");
+      if (Number(App.ultimoSorteoId) === id) {
+        App.ultimoSorteoId = null;
+        $("#resultadoSorteo").classList.add("hidden");
+      }
       aplicarEstado(resultado.estado);
       toast("Sorteo eliminado del historial");
     } catch (error) {

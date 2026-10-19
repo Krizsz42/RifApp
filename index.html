@@ -77,16 +77,40 @@
       </label>
     </div>
 
+    <div class="premios-caja">
+      <div class="premios-cabecera">
+        <div>
+          <h3>Premios</h3>
+          <p class="muted small">Lista de premios y cuál se sortea en cada ronda.</p>
+        </div>
+        <span id="premiosResumen" class="muted small"></span>
+      </div>
+      <form id="formPremio" class="premio-form solo-admin" autocomplete="off">
+        <input type="text" id="nuevoPremio" maxlength="120" required
+               placeholder="Ej: Canasta familiar" aria-label="Nombre del premio">
+        <button type="submit" class="btn primary" id="btnAgregarPremio">Agregar premio</button>
+      </form>
+      <div id="listaPremios" class="lista-premios" aria-live="polite"></div>
+    </div>
+
     <div class="sorteo-cuerpo">
       <div class="sorteo-accion solo-admin">
+        <label class="campo">
+          <span>Premio a sortear</span>
+          <select id="sorteoPremio"></select>
+        </label>
         <button type="button" class="btn sorteo-btn" id="btnSortear">🎲 Realizar sorteo</button>
-        <p class="muted small">Cada sorteo queda guardado en el historial.</p>
+        <p class="muted small">Los ganadores marcados como «No repite» no participan en los siguientes sorteos. Cada sorteo queda guardado en el historial.</p>
       </div>
       <div id="resultadoSorteo" class="resultado-sorteo hidden">
         <span class="muted small">Ganador</span>
         <div class="ganador-num" id="ganadorNumero">—</div>
         <div class="ganador-nombre" id="ganadorNombre"></div>
         <div class="muted small" id="ganadorExtra"></div>
+        <label class="check resultado-exclusion solo-admin">
+          <input type="checkbox" id="excluirGanador">
+          <span>Este ganador no participa en los siguientes sorteos</span>
+        </label>
       </div>
     </div>
 
@@ -202,8 +226,9 @@
         <input type="text" id="cfgNombre" maxlength="80" required>
       </label>
       <label class="campo">
-        <span>Premio</span>
+        <span>Premio general (opcional)</span>
         <input type="text" id="cfgPremio" maxlength="200" placeholder="Ej: una bicicleta">
+        <small class="muted">Se usa solo si todavía no agregaste premios a la lista del sorteo.</small>
       </label>
       <div class="fila-campos">
         <label class="campo">

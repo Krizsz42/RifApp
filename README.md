@@ -8,6 +8,8 @@ dispositivo con internet, sin tener que iniciar un servidor en tu PC.
 - **Administración:** PIN compartido. El público puede ver la rifa, pero solo
   los administradores pueden asignar números, registrar abonos, configurar y
   hacer sorteos.
+- **Sorteos:** lista de premios, selección del premio en cada sorteo y opción
+  **No repite** para que los ganadores no vuelvan a participar.
 
 ## Puesta en marcha
 
@@ -21,6 +23,18 @@ La guía paso a paso está en [`DESPLIEGUE.md`](DESPLIEGUE.md). Resumen:
    `config.js`.
 5. Conectar el repositorio a Netlify (o ejecutar `node scripts/build.mjs` y
    subir la carpeta `dist/`).
+
+## Sorteos con premios
+
+Desde **Sorteo → Premios** se agrega una lista de premios. Al sortear se elige
+cuál premio se está jugando; el premio queda enlazado al historial. Cada
+ganador queda marcado como **No repite** por defecto, así que no vuelve a
+participar en los siguientes sorteos; se puede desmarcar desde el resultado o
+el historial. Para identificar a la misma persona se usa el teléfono o, si no
+hay, el nombre. Si se elimina un sorteo, su premio vuelve a quedar pendiente.
+
+Si la lista está vacía se usa el premio general de **Configurar**. La lista y
+el historial son públicos; los controles de edición solo aparecen con el PIN.
 
 ## Privacidad
 
