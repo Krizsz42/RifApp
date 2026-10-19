@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
+<title>Rifa de 200 números</title>
+<link rel="stylesheet" href="estilos.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎟️</text></svg>">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="logo">🎟️</div>
+    <div class="brand-text">
+      <h1 id="tituloRifa">Rifa de 200 números</h1>
+      <p id="subtituloRifa" class="muted">Cargando…</p>
+    </div>
+  </div>
+  <div class="top-actions">
+    <span id="estadoConexion" class="pill">● Conectando…</span>
+    <button type="button" class="btn ghost" id="btnCompartir">Compartir</button>
+    <button type="button" class="btn ghost solo-admin" id="btnExportar">Exportar</button>
+    <button type="button" class="btn ghost solo-admin" id="btnRespaldo">Respaldo</button>
+    <button type="button" class="btn primary solo-admin" id="btnConfig">Configurar</button>
+    <button type="button" class="btn ghost" id="btnAdmin">🔒 Entrar</button>
+  </div>
+</header>
+
+<main class="contenido">
+
+  <section id="avisoConfig" class="aviso-config hidden" role="alert">
+    <strong>Falta conectar Supabase</strong>
+    <p>Edita <code>config.js</code> con la URL y la clave <code>anon</code> de tu proyecto, y ejecuta <code>supabase/schema.sql</code> en el SQL Editor. La guía completa está en <code>DESPLIEGUE.md</code>.</p>
+  </section>
+
+  <section class="stats" id="stats" aria-label="Resumen de la rifa"></section>
+
+  <section class="panel">
+    <div class="toolbar">
+      <div class="buscador">
+        <span class="buscador-icono">🔍</span>
+        <input type="search" id="buscar" placeholder="Buscar número, nombre o teléfono…" autocomplete="off">
+      </div>
+      <div class="leyenda" aria-hidden="true">
+        <span><i class="punto libre"></i>Libre</span>
+        <span><i class="punto apartado"></i>Apartado</span>
+        <span><i class="punto pagado"></i>Pagado</span>
+        <span class="solo-admin"><i class="punto sel"></i>Seleccionado</span>
+      </div>
+    </div>
+
+    <div id="barraSeleccion" class="selection-bar hidden solo-admin">
+      <div>
+        <strong id="txtSeleccion"></strong>
+        <span id="txtSeleccionTotal" class="muted"></span>
+      </div>
+      <div class="selection-actions">
+        <button type="button" class="btn primary" id="btnAsignar">Asignar números</button>
+        <button type="button" class="btn ghost" id="btnLimpiarSel">Limpiar</button>
+      </div>
+    </div>
+
+    <div id="grid" class="grid" aria-label="Números de la rifa"></div>
+  </section>
+
+  <section class="panel sorteo-panel">
+    <div class="sorteo-cabecera">
+      <div>
+        <h2>Sorteo</h2>
+        <p class="muted">Elige un ganador al azar entre los números vendidos.</p>
+      </div>
+      <label class="check solo-admin">
+        <input type="checkbox" id="soloPagados">
+        <span>Solo números pagados</span>
+      </label>
+    </div>
+
+    <div class="sorteo-cuerpo">
+      <div class="sorteo-accion solo-admin">
+        <button type="button" class="btn sorteo-btn" id="btnSortear">🎲 Realizar sorteo</button>
+        <p class="muted small">Cada sorteo queda guardado en el historial.</p>
+      </div>
+      <div id="resultadoSorteo" class="resultado-sorteo hidden">
+        <span class="muted small">Ganador</span>
+        <div class="ganador-num" id="ganadorNumero">—</div>
+        <div class="ganador-nombre" id="ganadorNombre"></div>
+        <div class="muted small" id="ganadorExtra"></div>
+      </div>
+    </div>
+
+    <h3 class="historial-titulo">Historial</h3>
+    <div id="historialSorteos" class="historial"></div>
+  </section>
+</main>
+
+<!-- Modal: asignar números -->
+<div class="modal-backdrop hidden" id="modalAsignar">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="tituloAsignar">
+    <div class="modal-head">
+      <h2 id="tituloAsignar">Asignar números</h2>
+      <button type="button" class="cerrar" data-cerrar="#modalAsignar" aria-label="Cerrar">×</button>
+    </div>
+    <div class="chips" id="asignarNumeros"></div>
+    <form id="formAsignar">
+      <label class="campo">
+        <span>Nombre del comprador *</span>
+        <input type="text" id="asigNombre" maxlength="80" required placeholder="Ej: María González">
+      </label>
+      <div class="fila-campos">
+        <label class="campo">
+          <span>Teléfono</span>
+          <input type="tel" id="asigTelefono" maxlength="40" placeholder="Ej: 8888 8888">
+        </label>
+        <label class="campo">
+          <span>Abono por número</span>
+          <input type="number" id="asigAbono" min="0" step="1" value="0" inputmode="numeric">
+        </label>
+      </div>
+      <div class="quick-montos">
+        <button type="button" class="mini" data-monto="0">Sin abono</button>
+        <button type="button" class="mini" data-monto="precio" id="btnPagoCompleto">Pagado completo</button>
+      </div>
+      <label class="campo">
+        <span>Nota (opcional)</span>
+        <input type="text" id="asigNota" maxlength="300" placeholder="Ej: paga el viernes">
+      </label>
+      <div class="resumen-asignar">
+        <div><span class="muted">Cobrar ahora</span><strong id="asigTotal">—</strong></div>
+        <div><span class="muted">Saldo pendiente</span><strong id="asigSaldo">—</strong></div>
+      </div>
+      <div class="modal-acciones">
+        <button type="button" class="btn ghost" data-cerrar="#modalAsignar">Cancelar</button>
+        <button type="submit" class="btn primary" id="btnConfirmarAsignar">Asignar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: detalle del número -->
+<div class="modal-backdrop hidden" id="modalDetalle">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="tituloDetalle">
+    <div class="modal-head">
+      <h2 id="tituloDetalle">Número <span id="detNumero"></span></h2>
+      <button type="button" class="cerrar" data-cerrar="#modalDetalle" aria-label="Cerrar">×</button>
+    </div>
+
+    <div id="detBadge" class="badge"></div>
+
+    <div class="det-grid">
+      <div class="det-dato"><span>Comprador</span><strong id="detNombre">—</strong></div>
+      <div class="det-dato"><span>Teléfono</span><strong id="detTelefono">—</strong></div>
+      <div class="det-dato"><span>Precio</span><strong id="detPrecio">—</strong></div>
+      <div class="det-dato"><span>Abonado</span><strong id="detAbonado">—</strong></div>
+      <div class="det-dato"><span>Saldo</span><strong id="detSaldo">—</strong></div>
+      <div class="det-dato"><span>Actualizado</span><strong id="detFecha">—</strong></div>
+    </div>
+    <p id="detNota" class="det-nota muted"></p>
+
+    <div id="detPago" class="det-pago solo-admin">
+      <label class="campo">
+        <span>Registrar abono</span>
+        <div class="fila-pago">
+          <input type="number" id="detMonto" min="1" step="1" inputmode="numeric" placeholder="Monto">
+          <button type="button" class="btn primary" id="btnAbonar">Abonar</button>
+        </div>
+      </label>
+      <button type="button" class="mini" id="btnPagarSaldo">Pagar el saldo completo</button>
+    </div>
+
+    <details class="det-editar solo-admin">
+      <summary>Editar datos del comprador</summary>
+      <form id="formEditar">
+        <label class="campo"><span>Nombre</span><input type="text" id="editNombre" maxlength="80" required></label>
+        <label class="campo"><span>Teléfono</span><input type="tel" id="editTelefono" maxlength="40"></label>
+        <label class="campo"><span>Nota</span><input type="text" id="editNota" maxlength="300"></label>
+        <button type="submit" class="btn ghost">Guardar cambios</button>
+      </form>
+    </details>
+
+    <h3 class="historial-titulo">Historial de abonos</h3>
+    <div id="detHistorial" class="historial abonos"></div>
+
+    <div class="modal-acciones">
+      <button type="button" class="btn danger solo-admin" id="btnLiberar">Liberar número</button>
+      <button type="button" class="btn ghost" data-cerrar="#modalDetalle">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: configuración -->
+<div class="modal-backdrop hidden" id="modalConfig">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="tituloConfig">
+    <div class="modal-head">
+      <h2 id="tituloConfig">Configurar rifa</h2>
+      <button type="button" class="cerrar" data-cerrar="#modalConfig" aria-label="Cerrar">×</button>
+    </div>
+    <form id="formConfig">
+      <label class="campo">
+        <span>Nombre de la rifa</span>
+        <input type="text" id="cfgNombre" maxlength="80" required>
+      </label>
+      <label class="campo">
+        <span>Premio</span>
+        <input type="text" id="cfgPremio" maxlength="200" placeholder="Ej: una bicicleta">
+      </label>
+      <div class="fila-campos">
+        <label class="campo">
+          <span>Cantidad de números</span>
+          <input type="number" id="cfgTotal" min="1" max="10000" step="1" required>
+        </label>
+        <label class="campo">
+          <span>Precio por número</span>
+          <input type="number" id="cfgPrecio" min="0" step="1" required>
+        </label>
+      </div>
+      <label class="campo">
+        <span>Símbolo de moneda (CLP)</span>
+        <input type="text" id="cfgMoneda" maxlength="8" placeholder="$, CLP, €…">
+      </label>
+      <p class="muted small">Si cambias el precio, los estados se recalculan. No puedes reducir la cantidad por debajo del número más alto vendido.</p>
+      <div class="modal-acciones">
+        <button type="button" class="btn ghost" data-cerrar="#modalConfig">Cancelar</button>
+        <button type="submit" class="btn primary">Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: compartir -->
+<div class="modal-backdrop hidden" id="modalCompartir">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="tituloCompartir">
+    <div class="modal-head">
+      <h2 id="tituloCompartir">Compartir con otras personas</h2>
+      <button type="button" class="cerrar" data-cerrar="#modalCompartir" aria-label="Cerrar">×</button>
+    </div>
+    <p class="muted">Comparte este enlace con quien quieras. Funciona desde cualquier celular o computadora con internet.</p>
+    <div id="listaEnlaces" class="lista-enlaces"></div>
+    <p class="muted small">Los cambios que hagan los administradores se verán en vivo en todos los dispositivos.</p>
+    <div class="modal-acciones">
+      <button type="button" class="btn ghost" data-cerrar="#modalCompartir">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: administración con PIN -->
+<div class="modal-backdrop hidden" id="modalAdmin">
+  <div class="modal modal-admin" role="dialog" aria-modal="true" aria-labelledby="tituloAdmin">
+    <div class="modal-head">
+      <h2 id="tituloAdmin">Administración</h2>
+      <button type="button" class="cerrar" data-cerrar="#modalAdmin" aria-label="Cerrar">×</button>
+    </div>
+
+    <div id="adminLogin">
+      <p class="muted">Ingresa el PIN compartido para asignar números, registrar abonos, configurar la rifa o hacer sorteos.</p>
+      <form id="formLogin">
+        <label class="campo">
+          <span>PIN de administrador</span>
+          <input type="password" id="adminPin" maxlength="200" autocomplete="current-password" required placeholder="••••••">
+        </label>
+        <div class="modal-acciones">
+          <button type="submit" class="btn primary" id="btnEntrarPin">Entrar</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="adminPanel" class="hidden">
+      <p class="muted">Sesión de administrador activa en este dispositivo.</p>
+      <p class="muted small" id="adminExpira"></p>
+
+      <details class="det-editar admin-cambiar-pin">
+        <summary>Cambiar PIN compartido</summary>
+        <form id="formCambiarPin">
+          <label class="campo">
+            <span>PIN actual</span>
+            <input type="password" id="pinActual" maxlength="200" autocomplete="current-password" required>
+          </label>
+          <label class="campo">
+            <span>PIN nuevo (mínimo 6 caracteres)</span>
+            <input type="password" id="pinNuevo" maxlength="200" autocomplete="new-password" required minlength="6">
+          </label>
+          <label class="campo">
+            <span>Repite el PIN nuevo</span>
+            <input type="password" id="pinNuevo2" maxlength="200" autocomplete="new-password" required minlength="6">
+          </label>
+          <button type="submit" class="btn ghost">Guardar nuevo PIN</button>
+        </form>
+      </details>
+
+      <p class="muted small">Al cambiar el PIN se cerrarán las sesiones de los otros dispositivos; deberán entrar con el nuevo PIN.</p>
+
+      <div class="modal-acciones">
+        <button type="button" class="btn danger" id="btnSalirAdmin">Salir de administrador</button>
+        <button type="button" class="btn ghost" data-cerrar="#modalAdmin">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<script src="vendor/supabase.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

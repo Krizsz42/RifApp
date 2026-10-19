@@ -1,0 +1,12 @@
+dist/
+.netlify/
+.DS_Store
+Thumbs.db
+
+# Base de datos local de la versión anterior. No se usa en la versión online.
+rifa.db
+*.sqlite
+*.sqlite3
+
+# Copia local del SQL que contiene el PIN real.
+supabase/configurar_pin.local.sql

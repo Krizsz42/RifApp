@@ -1,0 +1,69 @@
+# RifApp 🎟️
+
+Rifa online con actualización en tiempo real. Funciona desde cualquier
+dispositivo con internet, sin tener que iniciar un servidor en tu PC.
+
+- **Sitio:** Netlify (HTML, CSS y JavaScript estáticos).
+- **Datos:** Supabase (PostgreSQL + Realtime).
+- **Administración:** PIN compartido. El público puede ver la rifa, pero solo
+  los administradores pueden asignar números, registrar abonos, configurar y
+  hacer sorteos.
+
+## Puesta en marcha
+
+La guía paso a paso está en [`DESPLIEGUE.md`](DESPLIEGUE.md). Resumen:
+
+1. Crear un proyecto en Supabase.
+2. Ejecutar `supabase/schema.sql` en el SQL Editor.
+3. Copiar `supabase/configurar_pin.sql` a `supabase/configurar_pin.local.sql`,
+   poner el PIN compartido en la copia y ejecutarla. La copia no se sube a Git.
+4. Copiar la URL y la clave pública (`anon` o `publishable`) de Supabase en
+   `config.js`.
+5. Conectar el repositorio a Netlify (o ejecutar `node scripts/build.mjs` y
+   subir la carpeta `dist/`).
+
+## Privacidad
+
+El enlace público es de solo lectura, pero cualquiera que lo tenga puede ver
+los datos de los números, incluidos nombre, teléfono, notas e historial de
+abonos. Compártelo solo con las personas que deban consultar la rifa. Si más
+adelante quieres ocultar esos datos al público, se puede cambiar el diseño para
+mostrarlos solo con el PIN.
+
+## Desarrollo local
+
+No hay build con dependencias. Para probar el sitio:
+
+```bash
+node scripts/build.mjs
+npx serve dist
+```
+
+También puedes abrir el proyecto con cualquier servidor estático. La app usa
+directamente Supabase, así que no necesita el antiguo `servidor.py`.
+
+## Estructura
+
+```text
+index.html            Interfaz
+app.js                Lógica y conexión con Supabase
+estilos.css           Estilos
+config.js             URL y clave pública de Supabase
+vendor/supabase.js    Librería de Supabase (incluida localmente)
+supabase/schema.sql   Tablas, funciones RPC, RLS y Realtime
+supabase/configurar_pin.sql  Plantilla para definir el PIN compartido
+scripts/build.mjs     Genera dist/ con los archivos publicables
+netlify.toml          Configuración de Netlify
+DESPLIEGUE.md         Guía de despliegue y seguridad
+README-local.md       Guía de la versión local anterior
+```
+
+## Versión local anterior
+
+`servidor.py`, `iniciar.bat` y `rifa.db` se conservan como referencia, pero la
+versión online no los usa ni los publica. La guía antigua está en
+[`README-local.md`](README-local.md).
+
+`rifa.db` contiene los datos de la versión anterior. Está en `.gitignore` para
+no volver a subirlo. Si ya estaba en tu repositorio, quítalo del control de
+versiones con `git rm --cached rifa.db` (el archivo local se conserva).
