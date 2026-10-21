@@ -20,6 +20,7 @@
   </div>
   <div class="top-actions">
     <span id="estadoConexion" class="pill">● Conectando…</span>
+    <button type="button" class="btn ghost" id="btnDisponibles">📋 Disponibles</button>
     <button type="button" class="btn ghost" id="btnCompartir">Compartir</button>
     <button type="button" class="btn ghost solo-admin" id="btnExportar">Exportar</button>
     <button type="button" class="btn ghost solo-admin" id="btnRespaldo">Respaldo</button>
@@ -43,6 +44,7 @@
         <span class="buscador-icono">🔍</span>
         <input type="search" id="buscar" placeholder="Buscar número, nombre o teléfono…" autocomplete="off">
       </div>
+      <button type="button" class="btn ghost solo-admin" id="btnAzar">🎲 Al azar</button>
       <div class="leyenda" aria-hidden="true">
         <span><i class="punto libre"></i>Libre</span>
         <span><i class="punto apartado"></i>Apartado</span>
@@ -208,6 +210,7 @@
 
     <div class="modal-acciones">
       <button type="button" class="btn danger solo-admin" id="btnLiberar">Liberar número</button>
+      <button type="button" class="btn ghost hidden" id="btnComprobante">🧾 Comprobante</button>
       <button type="button" class="btn ghost" data-cerrar="#modalDetalle">Cerrar</button>
     </div>
   </div>
@@ -319,6 +322,74 @@
         <button type="button" class="btn danger" id="btnSalirAdmin">Salir de administrador</button>
         <button type="button" class="btn ghost" data-cerrar="#modalAdmin">Cerrar</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: elegir números al azar -->
+<div class="modal-backdrop hidden" id="modalAzar">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="tituloAzar">
+    <div class="modal-head">
+      <h2 id="tituloAzar">Elegir números al azar</h2>
+      <button type="button" class="cerrar" data-cerrar="#modalAzar" aria-label="Cerrar">×</button>
+    </div>
+    <p id="azarDisponibles" class="muted small"></p>
+    <form id="formAzar">
+      <label class="campo">
+        <span>¿Cuántos números quieres elegir?</span>
+        <input type="number" id="azarCantidad" min="1" step="1" required inputmode="numeric">
+      </label>
+      <label class="check">
+        <input type="checkbox" id="azarReemplazar">
+        <span>Reemplazar la selección actual</span>
+      </label>
+      <div class="modal-acciones">
+        <button type="button" class="btn ghost" data-cerrar="#modalAzar">Cancelar</button>
+        <button type="submit" class="btn primary">🎲 Elegir al azar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: números disponibles e imagen -->
+<div class="modal-backdrop hidden" id="modalDisponibles">
+  <div class="modal modal-ancho" role="dialog" aria-modal="true" aria-labelledby="tituloDisponibles">
+    <div class="modal-head">
+      <h2 id="tituloDisponibles">Números disponibles</h2>
+      <button type="button" class="cerrar" data-cerrar="#modalDisponibles" aria-label="Cerrar">×</button>
+    </div>
+    <p id="dispResumen" class="muted small disp-resumen"></p>
+    <div class="disp-acciones">
+      <button type="button" class="btn primary" id="btnImagenDisponibles">🖼️ Generar imagen</button>
+      <button type="button" class="btn ghost" id="btnCopiarLista">📋 Copiar lista</button>
+      <button type="button" class="btn ghost" id="btnDescargarLista">⬇️ Descargar lista</button>
+    </div>
+    <div id="dispLista" class="disp-lista"></div>
+    <div id="dispImagenCaja" class="disp-imagen-caja hidden">
+      <img id="dispImagen" alt="Imagen con los números disponibles de la rifa">
+      <div class="modal-acciones">
+        <button type="button" class="btn primary" id="btnDescargarImagen">⬇️ Descargar imagen</button>
+        <button type="button" class="btn ghost" id="btnCompartirImagen">Compartir</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: comprobante del número -->
+<div class="modal-backdrop hidden" id="modalComprobante">
+  <div class="modal modal-ancho" role="dialog" aria-modal="true" aria-labelledby="tituloComprobante">
+    <div class="modal-head">
+      <h2 id="tituloComprobante">Comprobante</h2>
+      <button type="button" class="cerrar" data-cerrar="#modalComprobante" aria-label="Cerrar">×</button>
+    </div>
+    <p class="muted small">Guarda o comparte este comprobante con el comprador.</p>
+    <div class="comprobante-caja">
+      <img id="comprobanteImagen" alt="Comprobante del número de la rifa">
+    </div>
+    <div class="modal-acciones">
+      <button type="button" class="btn primary" id="btnDescargarComprobante">⬇️ Descargar</button>
+      <button type="button" class="btn ghost" id="btnCompartirComprobante">Compartir</button>
+      <button type="button" class="btn ghost" data-cerrar="#modalComprobante">Cerrar</button>
     </div>
   </div>
 </div>

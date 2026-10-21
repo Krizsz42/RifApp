@@ -33,6 +33,15 @@ const App = {
 let cliente = null;
 let temporizadorRefresco = null;
 
+// Imágenes generadas en el navegador (se liberan al cerrar sus modales).
+const Imagenes = {
+  disponibles: null,
+  comprobante: null,
+  comprobanteNumero: null,
+  urlDisponibles: null,
+  urlComprobante: null,
+};
+
 const formatoNumero = new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 });
 const formatoFecha = new Intl.DateTimeFormat("es-CL", {
   dateStyle: "short",
@@ -95,6 +104,17 @@ function cerrarModal(selector) {
   const el = $(selector);
   if (!el) return;
   el.classList.add("hidden");
+
+  if (selector === "#modalDisponibles") {
+    liberarImagen("urlDisponibles");
+    Imagenes.disponibles = null;
+    $("#dispImagenCaja")?.classList.add("hidden");
+  }
+  if (selector === "#modalComprobante") {
+    liberarImagen("urlComprobante");
+    Imagenes.comprobante = null;
+  }
+
   if (!$$(".modal-backdrop:not(.hidden)").length) {
     document.body.classList.remove("sin-scroll");
   }
@@ -721,6 +741,85 @@ function actualizarResumenAsignar() {
   $$(".quick-montos .mini").forEach((b) => b.classList.remove("activo"));
 }
 
+function abrirAzar() {
+  if (!App.admin) {
+    abrirAdmin();
+    return;
+  }
+  if (!App.datos) {
+    toast("La rifa todavía se está cargando", true);
+    return;
+  }
+
+  const disponibles = numerosDisponibles();
+  if (!disponibles.length) {
+    toast("No quedan números disponibles", true);
+    return;
+  }
+
+  const input = $("#azarCantidad");
+  input.max = String(disponibles.length);
+  input.value = String(Math.min(5, disponibles.length));
+  $("#azarReemplazar").checked = false;
+  $("#azarDisponibles").textContent =
+    `Hay ${disponibles.length} números disponibles. Los elegidos se agregan a la selección actual.`;
+  abrirModal("#modalAzar");
+  setTimeout(() => input.select(), 60);
+}
+
+function elegirAlAzar(evento) {
+  evento.preventDefault();
+
+  if (!App.admin) {
+    abrirAdmin();
+    return;
+  }
+  if (!App.datos) return;
+
+  const disponibles = numerosDisponibles();
+  if (!disponibles.length) {
+    toast("No quedan números disponibles", true);
+    return;
+  }
+
+  const cantidad = Math.max(0, Math.floor(Number($("#azarCantidad").value) || 0));
+  if (!cantidad) {
+    toast("Escribe cuántos números quieres elegir", true);
+    return;
+  }
+  if (cantidad > disponibles.length) {
+    toast(`Solo hay ${disponibles.length} números disponibles`, true);
+    return;
+  }
+
+  if ($("#azarReemplazar").checked) App.seleccion.clear();
+
+  const base = disponibles.filter((numero) => !App.seleccion.has(numero));
+  if (cantidad > base.length) {
+    toast(
+      `Solo puedes elegir ${base.length} número${base.length === 1 ? "" : "s"} más`,
+      true
+    );
+    return;
+  }
+
+  // Mezcla Fisher–Yates y toma los primeros.
+  for (let i = base.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [base[i], base[j]] = [base[j], base[i]];
+  }
+  for (const numero of base.slice(0, cantidad)) App.seleccion.add(numero);
+
+  $$("#grid .num").forEach((el) => {
+    el.classList.toggle("sel", App.seleccion.has(Number(el.dataset.n)));
+  });
+  actualizarBarraSeleccion();
+  cerrarModal("#modalAzar");
+  toast(
+    `${cantidad} número${cantidad === 1 ? "" : "s"} elegido${cantidad === 1 ? "" : "s"} al azar`
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /* Detalle del número                                                  */
 /* ------------------------------------------------------------------ */
@@ -743,6 +842,7 @@ function pintarDetalle(datos) {
   const badge = $("#detBadge");
   badge.className = `badge ${n.estado}`;
   badge.textContent = etiquetaEstado(n.estado);
+  $("#btnComprobante")?.classList.toggle("hidden", n.estado === "disponible");
 
   $("#detNombre").textContent = n.nombre || "—";
   $("#detTelefono").innerHTML = n.telefono
@@ -776,6 +876,752 @@ function pintarDetalle(datos) {
         </div>
       </div>`).join("");
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Imágenes: números disponibles y comprobantes                        */
+/* ------------------------------------------------------------------ */
+
+const FUENTE_IMAGEN = '"Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif';
+
+function lienzo(ancho, alto) {
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(ancho));
+  canvas.height = Math.max(1, Math.round(alto));
+  return canvas;
+}
+
+function fuente(tamano, peso = "700") {
+  return `${peso} ${tamano}px ${FUENTE_IMAGEN}`;
+}
+
+function rectangulo(ctx, x, y, ancho, alto, radio) {
+  const r = Math.max(0, Math.min(radio, ancho / 2, alto / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + ancho, y, x + ancho, y + alto, r);
+  ctx.arcTo(x + ancho, y + alto, x, y + alto, r);
+  ctx.arcTo(x, y + alto, x, y, r);
+  ctx.arcTo(x, y, x + ancho, y, r);
+  ctx.closePath();
+}
+
+function textoAjustado(ctx, texto, x, y, anchoMax, tamano, peso = "700", color = "#111827", alineado = "left") {
+  let actual = tamano;
+  ctx.textAlign = alineado;
+  ctx.textBaseline = "alphabetic";
+  ctx.font = fuente(actual, peso);
+  while (actual > 10 && ctx.measureText(texto).width > anchoMax) {
+    actual -= 1;
+    ctx.font = fuente(actual, peso);
+  }
+  ctx.fillStyle = color;
+  ctx.fillText(texto, x, y);
+  return actual;
+}
+
+function textoCentrado(ctx, texto, x, y, anchoMax, tamano, peso = "700", color = "#111827") {
+  let actual = tamano;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = fuente(actual, peso);
+  while (actual > 10 && ctx.measureText(texto).width > anchoMax) {
+    actual -= 1;
+    ctx.font = fuente(actual, peso);
+  }
+  ctx.fillStyle = color;
+  ctx.fillText(texto, x, y);
+  return actual;
+}
+
+function textoEnvuelto(ctx, texto, x, y, anchoMax, tamano, peso, color, altoLinea, maxLineas = 2) {
+  const palabras = String(texto ?? "").split(/\s+/).filter(Boolean);
+  const lineas = [];
+  let actual = "";
+  ctx.font = fuente(tamano, peso);
+
+  for (const palabra of palabras) {
+    const prueba = actual ? `${actual} ${palabra}` : palabra;
+    if (actual && ctx.measureText(prueba).width > anchoMax) {
+      lineas.push(actual);
+      if (lineas.length === maxLineas) break;
+      actual = palabra;
+    } else {
+      actual = prueba;
+    }
+  }
+  if (actual && lineas.length < maxLineas) lineas.push(actual);
+
+  let cursor = y;
+  for (const linea of lineas) {
+    textoAjustado(ctx, linea, x, cursor, anchoMax, tamano, peso, color);
+    cursor += altoLinea;
+  }
+  return cursor;
+}
+
+function lienzoABlob(canvas) {
+  return new Promise((resolver, rechazar) => {
+    canvas.toBlob(
+      (blob) => (blob ? resolver(blob) : rechazar(new Error("No se pudo crear la imagen"))),
+      "image/png"
+    );
+  });
+}
+
+function liberarImagen(clave) {
+  if (Imagenes[clave]) {
+    URL.revokeObjectURL(Imagenes[clave]);
+    Imagenes[clave] = null;
+  }
+}
+
+function descargarBlob(blob, nombre) {
+  const url = URL.createObjectURL(blob);
+  const enlace = document.createElement("a");
+  enlace.href = url;
+  enlace.download = nombre;
+  document.body.appendChild(enlace);
+  enlace.click();
+  enlace.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+async function compartirBlob(blob, nombre, titulo) {
+  try {
+    const archivo = new File([blob], nombre, { type: "image/png" });
+    if (navigator.canShare && navigator.canShare({ files: [archivo] })) {
+      await navigator.share({ files: [archivo], title: titulo });
+      return;
+    }
+  } catch (error) {
+    if (error && error.name === "AbortError") return;
+    console.error("No se pudo compartir la imagen:", error);
+  }
+
+  descargarBlob(blob, nombre);
+  toast("La imagen se descargó para que la puedas compartir");
+}
+
+function numerosDisponibles() {
+  return (App.datos?.numeros || [])
+    .filter((n) => n.estado === "disponible")
+    .map((n) => n.numero);
+}
+
+function agruparNumeros(numeros) {
+  const rangos = [];
+  for (let i = 0; i < numeros.length; i++) {
+    let j = i;
+    while (j + 1 < numeros.length && numeros[j + 1] === numeros[j] + 1) j++;
+    rangos.push(j > i ? `${numeros[i]}–${numeros[j]}` : String(numeros[i]));
+    i = j;
+  }
+  return rangos.join(" · ");
+}
+
+function listaEnLineas(numeros, porLinea = 12) {
+  const lineas = [];
+  for (let i = 0; i < numeros.length; i += porLinea) {
+    lineas.push(numeros.slice(i, i + porLinea).join(", "));
+  }
+  return lineas.join("\n");
+}
+
+function compradorDe(fila) {
+  const ocupados = (App.datos?.numeros || []).filter((n) => n.estado !== "disponible");
+  const telefono = String(fila.telefono || "").replace(/\D/g, "");
+
+  if (telefono) {
+    const mismos = ocupados.filter(
+      (n) => String(n.telefono || "").replace(/\D/g, "") === telefono
+    );
+    if (mismos.length) return mismos;
+  }
+
+  const nombre = norm(fila.nombre || "").replace(/[^a-z0-9]/g, "");
+  if (nombre) {
+    const mismos = ocupados.filter(
+      (n) => norm(n.nombre || "").replace(/[^a-z0-9]/g, "") === nombre
+    );
+    if (mismos.length) return mismos;
+  }
+
+  return [fila];
+}
+
+function estadoGrupo(numeros) {
+  if (numeros.every((n) => n.estado === "pagado")) return "Pagado";
+  if (numeros.every((n) => n.estado === "apartado")) return "Apartado";
+  return "Parcial";
+}
+
+function imagenDisponibles() {
+  const cfg = App.datos.config;
+  const lista = numerosDisponibles();
+  const total = App.datos.numeros.length;
+  const cantidad = lista.length;
+  const ultimo = App.datos.numeros[App.datos.numeros.length - 1];
+  const numeroMayor = Number(ultimo?.numero) || total;
+  const digitos = Math.max(2, String(numeroMayor).length);
+
+  const margen = 48;
+  const cabecera = 288;
+  const pie = 112;
+  const separacion = 34;
+  const anchoMax = cantidad > 2000 ? 1480 : 1160;
+
+  let celda = 28 + digitos * 7;
+  let hueco = Math.max(4, Math.round(celda * 0.12));
+  let columnas = 1;
+  let filas = 1;
+  let altoGrid = 0;
+  let ancho = 0;
+  let alto = 0;
+
+  // Ajusta el tamaño de las celdas para que la imagen no supere el límite
+  // práctico de un canvas (≈16.000 px de alto).
+  for (let intento = 0; intento < 80; intento++) {
+    const columnasMax = Math.max(
+      1,
+      Math.floor((anchoMax - margen * 2 + hueco) / (celda + hueco))
+    );
+    const comodas = Math.max(6, Math.ceil(Math.sqrt(Math.max(cantidad, 1) * 1.6)));
+    columnas = Math.max(1, Math.min(columnasMax, comodas));
+    filas = cantidad ? Math.ceil(cantidad / columnas) : 1;
+    altoGrid = cantidad ? filas * celda + (filas - 1) * hueco : 220;
+    ancho = Math.max(720, margen * 2 + columnas * celda + (columnas - 1) * hueco);
+    alto = cabecera + separacion + altoGrid + separacion + pie + margen;
+    // Algunos navegadores móviles limitan el área total del canvas (≈16 Mpx).
+    if (alto <= 15600 && ancho * alto <= 15000000) break;
+    celda -= 1;
+    hueco = Math.max(3, Math.round(celda * 0.1));
+  }
+
+  const canvas = lienzo(ancho, alto);
+  const ctx = canvas.getContext("2d");
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, ancho, alto);
+
+  const degradado = ctx.createLinearGradient(0, 0, ancho, cabecera);
+  degradado.addColorStop(0, "#6d28d9");
+  degradado.addColorStop(0.55, "#4f46e5");
+  degradado.addColorStop(1, "#2563eb");
+  ctx.fillStyle = degradado;
+  ctx.fillRect(0, 0, ancho, cabecera);
+
+  ctx.fillStyle = "rgba(255,255,255,.10)";
+  ctx.beginPath();
+  ctx.arc(ancho - 70, cabecera - 20, 150, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  ctx.font = fuente(20, "700");
+  ctx.fillStyle = "rgba(255,255,255,.85)";
+  ctx.fillText("NÚMEROS DISPONIBLES", margen, 62);
+
+  const finTitulo = textoEnvuelto(
+    ctx,
+    cfg.rifa_nombre || "Rifa",
+    margen,
+    122,
+    ancho - margen * 2,
+    44,
+    "800",
+    "#ffffff",
+    50,
+    2
+  );
+  const ySub = Math.min(216, finTitulo + 8);
+
+  textoAjustado(
+    ctx,
+    `Precio por número: ${dinero(cfg.precio)}  ·  ${cantidad} de ${total} disponible${cantidad === 1 ? "" : "s"}`,
+    margen,
+    ySub,
+    ancho - margen * 2,
+    24,
+    "600",
+    "rgba(255,255,255,.94)"
+  );
+
+  textoAjustado(
+    ctx,
+    cantidad
+      ? "Elige tu número y apártalo antes de que se agote"
+      : "Todos los números ya fueron vendidos. ¡Gracias por participar!",
+    margen,
+    Math.min(256, ySub + 40),
+    ancho - margen * 2,
+    20,
+    "500",
+    "rgba(255,255,255,.78)"
+  );
+
+  const gridTop = cabecera + separacion;
+  const anchoGrid = columnas * celda + (columnas - 1) * hueco;
+  const gridLeft = (ancho - anchoGrid) / 2;
+
+  if (cantidad) {
+    const tamanoNumero = Math.max(
+      10,
+      Math.round(celda * (digitos >= 4 ? 0.33 : 0.38))
+    );
+
+    lista.forEach((numero, indice) => {
+      const col = indice % columnas;
+      const fila = Math.floor(indice / columnas);
+      const x = gridLeft + col * (celda + hueco);
+      const y = gridTop + fila * (celda + hueco);
+
+      rectangulo(ctx, x, y, celda, celda, Math.min(10, celda * 0.2));
+      ctx.fillStyle = "#eff6ff";
+      ctx.fill();
+      ctx.strokeStyle = "#bfdbfe";
+      ctx.lineWidth = Math.max(1, celda * 0.03);
+      ctx.stroke();
+
+      ctx.font = fuente(tamanoNumero, "700");
+      ctx.fillStyle = "#1d4ed8";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(String(numero), x + celda / 2, y + celda / 2 + 0.5);
+    });
+  } else {
+    const cajaX = margen;
+    const cajaY = gridTop;
+    const cajaAncho = ancho - margen * 2;
+    rectangulo(ctx, cajaX, cajaY, cajaAncho, 220, 20);
+    ctx.fillStyle = "#fef2f2";
+    ctx.fill();
+    ctx.strokeStyle = "#fecaca";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    textoCentrado(
+      ctx,
+      "No quedan números disponibles",
+      ancho / 2,
+      cajaY + 100,
+      cajaAncho - 60,
+      34,
+      "800",
+      "#991b1b"
+    );
+    textoCentrado(
+      ctx,
+      "Todos los números ya fueron vendidos",
+      ancho / 2,
+      cajaY + 152,
+      cajaAncho - 60,
+      20,
+      "500",
+      "#b91c1c"
+    );
+  }
+
+  const pieTop = gridTop + altoGrid + separacion;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+
+  ctx.strokeStyle = "#e5e7eb";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(margen, pieTop);
+  ctx.lineTo(ancho - margen, pieTop);
+  ctx.stroke();
+
+  ctx.font = fuente(18, "600");
+  ctx.fillStyle = "#6b7280";
+  ctx.fillText("Aparta tu número en:", margen, pieTop + 34);
+
+  textoAjustado(
+    ctx,
+    window.location.href.split("#")[0],
+    margen,
+    pieTop + 68,
+    ancho - margen * 2,
+    24,
+    "700",
+    "#1d4ed8"
+  );
+
+  ctx.textAlign = "right";
+  ctx.font = fuente(16, "500");
+  ctx.fillStyle = "#9ca3af";
+  ctx.fillText(`Actualizado: ${formatoFecha.format(new Date())}`, ancho - margen, pieTop + 34);
+
+  return canvas;
+}
+
+function textoListaDisponibles() {
+  const cfg = App.datos?.config || {};
+  const numeros = numerosDisponibles();
+  const total = App.datos?.numeros?.length || 0;
+  const lineas = [
+    cfg.rifa_nombre || "Rifa",
+    `Números disponibles: ${numeros.length} de ${total}`,
+    `Precio por número: ${dinero(cfg.precio)}`,
+    "",
+  ];
+
+  if (numeros.length) {
+    lineas.push("Lista completa:");
+    lineas.push(listaEnLineas(numeros));
+    lineas.push("");
+    lineas.push("Rangos:");
+    lineas.push(agruparNumeros(numeros));
+  } else {
+    lineas.push("No quedan números disponibles.");
+  }
+
+  lineas.push("");
+  lineas.push(window.location.href.split("#")[0]);
+  return lineas.join("\n");
+}
+
+function renderDisponibles() {
+  const cfg = App.datos.config;
+  const numeros = numerosDisponibles();
+  const total = App.datos.numeros.length;
+
+  $("#dispResumen").textContent =
+    `${numeros.length} de ${total} números disponibles · ${dinero(cfg.precio)} por número`;
+
+  const cont = $("#dispLista");
+  if (!numeros.length) {
+    cont.innerHTML = `<p class="muted small">No quedan números disponibles. ¡Todos fueron vendidos!</p>`;
+    return;
+  }
+
+  const maxChips = 600;
+  const chips = numeros
+    .slice(0, maxChips)
+    .map((n) => `<span class="chip">${n}</span>`)
+    .join("");
+  const extra =
+    numeros.length > maxChips
+      ? `<p class="muted small">Se muestran los primeros ${maxChips}. Descarga la lista o genera la imagen para ver todos.</p>`
+      : "";
+
+  cont.innerHTML = `
+    <p class="disp-rangos">${esc(agruparNumeros(numeros))}</p>
+    <div class="disp-numeros">${chips}</div>
+    ${extra}`;
+}
+
+function abrirDisponibles() {
+  if (!App.datos) {
+    toast("La rifa todavía se está cargando", true);
+    return;
+  }
+  renderDisponibles();
+  liberarImagen("urlDisponibles");
+  Imagenes.disponibles = null;
+  $("#dispImagenCaja").classList.add("hidden");
+  $("#dispImagen").removeAttribute("src");
+  abrirModal("#modalDisponibles");
+}
+
+async function mostrarImagenDisponibles() {
+  if (!App.datos) return;
+
+  const boton = $("#btnImagenDisponibles");
+  boton.disabled = true;
+  boton.textContent = "Generando…";
+
+  try {
+    const blob = await lienzoABlob(imagenDisponibles());
+    Imagenes.disponibles = blob;
+    liberarImagen("urlDisponibles");
+    Imagenes.urlDisponibles = URL.createObjectURL(blob);
+    $("#dispImagen").src = Imagenes.urlDisponibles;
+    $("#dispImagenCaja").classList.remove("hidden");
+    $("#dispImagenCaja").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  } catch (error) {
+    console.error("No se pudo generar la imagen de números disponibles:", error);
+    toast("No se pudo generar la imagen", true);
+  } finally {
+    boton.disabled = false;
+    boton.textContent = "🖼️ Generar imagen";
+  }
+}
+
+function descargarImagenDisponibles() {
+  if (!Imagenes.disponibles) return;
+  descargarBlob(Imagenes.disponibles, marcaArchivo("png", "numeros-disponibles"));
+  toast("Imagen descargada");
+}
+
+async function compartirImagenDisponibles() {
+  if (!Imagenes.disponibles) return;
+  await compartirBlob(
+    Imagenes.disponibles,
+    marcaArchivo("png", "numeros-disponibles"),
+    `Números disponibles — ${App.datos?.config?.rifa_nombre || "Rifa"}`
+  );
+}
+
+function copiarListaDisponibles() {
+  copiarTexto(textoListaDisponibles(), "Lista copiada");
+}
+
+function descargarListaDisponibles() {
+  descargar(
+    textoListaDisponibles(),
+    "text/plain;charset=utf-8",
+    marcaArchivo("txt", "numeros-disponibles")
+  );
+  toast("Lista descargada");
+}
+
+function imagenComprobante(numero) {
+  const original = App.mapa.get(Number(numero));
+  if (!original || original.estado === "disponible") return null;
+
+  const cfg = App.datos.config;
+  const grupo = compradorDe(original);
+  const numeros = grupo.map((n) => n.numero);
+  const precio = Number(cfg.precio) || 0;
+  const abonado = grupo.reduce((suma, n) => suma + (Number(n.abonado) || 0), 0);
+  const saldo = grupo.reduce((suma, n) => suma + (Number(n.saldo) || 0), 0);
+
+  const ancho = 1000;
+  const margen = 46;
+  const contenido = ancho - margen * 2;
+  const cabecera = 250;
+
+  const medidor = document.createElement("canvas").getContext("2d");
+  const altoPill = 66;
+  const huecoPill = 10;
+  const tamPill = 30;
+  medidor.font = fuente(tamPill, "800");
+
+  const pills = [];
+  let cursorPill = 0;
+  let filaPill = 0;
+  for (const num of numeros) {
+    const anchoPill = Math.max(78, Math.round(medidor.measureText(String(num)).width + 48));
+    if (cursorPill > 0 && cursorPill + anchoPill > contenido) {
+      filaPill += 1;
+      cursorPill = 0;
+    }
+    pills.push({ numero: num, ancho: anchoPill, x: cursorPill, fila: filaPill });
+    cursorPill += anchoPill + huecoPill;
+  }
+
+  const altoPills = (filaPill + 1) * altoPill + filaPill * huecoPill;
+  const altoNumeros = numeros.length === 1 ? 210 : altoPills;
+  const yEtiqueta = cabecera + 46;
+  const yNumeros = cabecera + 64;
+  const detalleTop = yNumeros + altoNumeros + 40;
+
+  const datos = [
+    ["Comprador", original.nombre || "—"],
+    ["Teléfono", original.telefono || "—"],
+    ["Precio por número", dinero(precio)],
+    ["Total", dinero(precio * numeros.length)],
+    ["Abonado", dinero(abonado)],
+    ["Saldo pendiente", dinero(saldo)],
+    ["Estado", estadoGrupo(grupo)],
+    ["Actualizado", original.actualizado || "—"],
+  ];
+
+  const altoFila = 76;
+  const altoDetalle = Math.ceil(datos.length / 2) * altoFila;
+  const pieTop = detalleTop + altoDetalle + 22;
+  const alto = pieTop + 130 + margen;
+
+  const canvas = lienzo(ancho, alto);
+  const ctx = canvas.getContext("2d");
+
+  ctx.fillStyle = "#eef2f9";
+  ctx.fillRect(0, 0, ancho, alto);
+
+  rectangulo(ctx, 18, 18, ancho - 36, alto - 36, 30);
+  ctx.fillStyle = "#ffffff";
+  ctx.fill();
+
+  ctx.save();
+  rectangulo(ctx, 18, 18, ancho - 36, alto - 36, 30);
+  ctx.clip();
+
+  const degradado = ctx.createLinearGradient(0, 18, ancho, cabecera);
+  degradado.addColorStop(0, "#6d28d9");
+  degradado.addColorStop(0.55, "#4f46e5");
+  degradado.addColorStop(1, "#2563eb");
+  ctx.fillStyle = degradado;
+  ctx.fillRect(18, 18, ancho - 36, cabecera - 18);
+
+  ctx.fillStyle = "rgba(255,255,255,.10)";
+  ctx.beginPath();
+  ctx.arc(ancho - 70, cabecera - 20, 150, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  ctx.font = fuente(18, "700");
+  ctx.fillStyle = "rgba(255,255,255,.85)";
+  ctx.fillText("COMPROBANTE DE NÚMERO", margen, 66);
+
+  textoAjustado(
+    ctx,
+    cfg.rifa_nombre || "Rifa",
+    margen,
+    126,
+    contenido,
+    40,
+    "800",
+    "#ffffff"
+  );
+
+  ctx.font = fuente(18, "500");
+  ctx.fillStyle = "rgba(255,255,255,.82)";
+  ctx.fillText(`Emitido: ${formatoFecha.format(new Date())}`, margen, 174);
+
+  textoAjustado(
+    ctx,
+    numeros.length === 1 ? "TU NÚMERO" : `TUS NÚMEROS (${numeros.length})`,
+    margen,
+    yEtiqueta,
+    contenido,
+    18,
+    "800",
+    "#6b7280"
+  );
+
+  if (numeros.length === 1) {
+    rectangulo(ctx, margen, yNumeros, contenido, altoNumeros, 22);
+    ctx.fillStyle = "#eff6ff";
+    ctx.fill();
+    ctx.strokeStyle = "#bfdbfe";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    textoCentrado(
+      ctx,
+      String(numeros[0]),
+      ancho / 2,
+      yNumeros + altoNumeros / 2 + 4,
+      contenido - 80,
+      112,
+      "800",
+      "#1d4ed8"
+    );
+  } else {
+    for (const pill of pills) {
+      const px = margen + pill.x;
+      const py = yNumeros + pill.fila * (altoPill + huecoPill);
+      rectangulo(ctx, px, py, pill.ancho, altoPill, 16);
+      ctx.fillStyle = "#eff6ff";
+      ctx.fill();
+      ctx.strokeStyle = "#bfdbfe";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.font = fuente(tamPill, "800");
+      ctx.fillStyle = "#1d4ed8";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(String(pill.numero), px + pill.ancho / 2, py + altoPill / 2 + 1);
+    }
+  }
+
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  const colAncho = contenido / 2;
+
+  datos.forEach(([etiqueta, valor], indice) => {
+    const col = indice % 2;
+    const fila = Math.floor(indice / 2);
+    const x = margen + col * (colAncho + 16);
+    const y = detalleTop + fila * altoFila;
+
+    ctx.font = fuente(15, "700");
+    ctx.fillStyle = "#6b7280";
+    ctx.fillText(etiqueta.toUpperCase(), x, y + 8);
+
+    let color = "#111827";
+    if (etiqueta === "Abonado") color = "#15803d";
+    if (etiqueta === "Saldo pendiente") color = saldo > 0 ? "#b45309" : "#15803d";
+
+    textoAjustado(ctx, String(valor), x, y + 42, colAncho - 16, 26, "600", color);
+  });
+
+  ctx.strokeStyle = "#e5e7eb";
+  ctx.lineWidth = 2;
+  ctx.setLineDash([8, 8]);
+  ctx.beginPath();
+  ctx.moveTo(margen, pieTop);
+  ctx.lineTo(ancho - margen, pieTop);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  textoCentrado(
+    ctx,
+    "Conserva este comprobante",
+    ancho / 2,
+    pieTop + 44,
+    contenido - 40,
+    22,
+    "700",
+    "#374151"
+  );
+  textoCentrado(
+    ctx,
+    window.location.href.split("#")[0],
+    ancho / 2,
+    pieTop + 82,
+    contenido - 40,
+    18,
+    "500",
+    "#2563eb"
+  );
+
+  return canvas;
+}
+
+async function abrirComprobante(numero) {
+  if (!App.datos) return;
+
+  const fila = App.mapa.get(Number(numero));
+  if (!fila || fila.estado === "disponible") {
+    toast("Ese número todavía está disponible", true);
+    return;
+  }
+
+  try {
+    const canvas = imagenComprobante(numero);
+    if (!canvas) return;
+
+    const blob = await lienzoABlob(canvas);
+    Imagenes.comprobante = blob;
+    Imagenes.comprobanteNumero = Number(numero);
+    liberarImagen("urlComprobante");
+    Imagenes.urlComprobante = URL.createObjectURL(blob);
+    $("#comprobanteImagen").src = Imagenes.urlComprobante;
+    abrirModal("#modalComprobante");
+  } catch (error) {
+    console.error("No se pudo generar el comprobante:", error);
+    toast("No se pudo generar el comprobante", true);
+  }
+}
+
+function descargarComprobante() {
+  if (!Imagenes.comprobante) return;
+  const numero = Imagenes.comprobanteNumero || "numero";
+  descargarBlob(Imagenes.comprobante, marcaArchivo("png", `comprobante-${numero}`));
+  toast("Comprobante descargado");
+}
+
+async function compartirComprobante() {
+  if (!Imagenes.comprobante) return;
+  const numero = Imagenes.comprobanteNumero || "";
+  await compartirBlob(
+    Imagenes.comprobante,
+    marcaArchivo("png", `comprobante-${numero || "numero"}`),
+    `Comprobante del número ${numero} — ${App.datos?.config?.rifa_nombre || "Rifa"}`
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -960,10 +1806,10 @@ function abrirCompartir() {
   abrirModal("#modalCompartir");
 }
 
-async function copiarTexto(texto) {
+async function copiarTexto(texto, mensaje = "Enlace copiado") {
   try {
     await navigator.clipboard.writeText(texto);
-    toast("Enlace copiado");
+    toast(mensaje);
   } catch {
     const area = document.createElement("textarea");
     area.value = texto;
@@ -973,18 +1819,18 @@ async function copiarTexto(texto) {
     area.select();
     try {
       document.execCommand("copy");
-      toast("Enlace copiado");
+      toast(mensaje);
     } catch {
-      toast("No se pudo copiar, selecciona el enlace manualmente", true);
+      toast("No se pudo copiar, selecciona el contenido manualmente", true);
     }
     area.remove();
   }
 }
 
-function marcaArchivo(extension) {
+function marcaArchivo(extension, base = "rifa") {
   const d = new Date();
   const dos = (n) => String(n).padStart(2, "0");
-  return `rifa-${d.getFullYear()}${dos(d.getMonth() + 1)}${dos(d.getDate())}-${dos(d.getHours())}${dos(d.getMinutes())}.${extension}`;
+  return `${base}-${d.getFullYear()}${dos(d.getMonth() + 1)}${dos(d.getDate())}-${dos(d.getHours())}${dos(d.getMinutes())}.${extension}`;
 }
 
 function descargar(contenido, tipo, nombre) {
@@ -1145,6 +1991,9 @@ function conectarEventos() {
     actualizarBarraSeleccion();
   });
 
+  $("#btnAzar").addEventListener("click", abrirAzar);
+  $("#formAzar").addEventListener("submit", elegirAlAzar);
+
   $("#asigAbono").addEventListener("input", actualizarResumenAsignar);
   $$(".quick-montos .mini").forEach((boton) => {
     boton.addEventListener("click", () => {
@@ -1164,10 +2013,11 @@ function conectarEventos() {
 
     const boton = $("#btnConfirmarAsignar");
     boton.disabled = true;
+    const numerosAsignados = Array.from(App.seleccion).sort((a, b) => a - b);
     try {
       const resultado = await rpc("asignar_numeros", {
         p_token: App.token,
-        p_numeros: Array.from(App.seleccion),
+        p_numeros: numerosAsignados,
         p_nombre: $("#asigNombre").value,
         p_telefono: $("#asigTelefono").value,
         p_nota: $("#asigNota").value,
@@ -1178,6 +2028,7 @@ function conectarEventos() {
       actualizarBarraSeleccion();
       cerrarModal("#modalAsignar");
       toast("Números asignados correctamente");
+      if (numerosAsignados.length) abrirComprobante(numerosAsignados[0]);
     } catch (error) {
       toast(error.message, true);
       cargarEstado();
@@ -1458,6 +2309,18 @@ function conectarEventos() {
   $("#btnCompartir").addEventListener("click", abrirCompartir);
   $("#btnExportar").addEventListener("click", exportarCSV);
   $("#btnRespaldo").addEventListener("click", descargarRespaldo);
+
+  $("#btnDisponibles").addEventListener("click", abrirDisponibles);
+  $("#btnImagenDisponibles").addEventListener("click", mostrarImagenDisponibles);
+  $("#btnDescargarImagen").addEventListener("click", descargarImagenDisponibles);
+  $("#btnCompartirImagen").addEventListener("click", compartirImagenDisponibles);
+  $("#btnCopiarLista").addEventListener("click", copiarListaDisponibles);
+  $("#btnDescargarLista").addEventListener("click", descargarListaDisponibles);
+  $("#btnComprobante").addEventListener("click", () => {
+    if (App.detalle) abrirComprobante(App.detalle);
+  });
+  $("#btnDescargarComprobante").addEventListener("click", descargarComprobante);
+  $("#btnCompartirComprobante").addEventListener("click", compartirComprobante);
 
   $("#btnAdmin").addEventListener("click", abrirAdmin);
   $("#formLogin").addEventListener("submit", (evento) => {

@@ -36,6 +36,20 @@ hay, el nombre. Si se elimina un sorteo, su premio vuelve a quedar pendiente.
 Si la lista está vacía se usa el premio general de **Configurar**. La lista y
 el historial son públicos; los controles de edición solo aparecen con el PIN.
 
+## Números al azar, imágenes y comprobantes
+
+- **🎲 Al azar:** con sesión de administrador, elige números disponibles al
+  azar para asignarlos a un comprador. Puedes indicar cuántos y reemplazar la
+  selección que ya tenías.
+- **📋 Disponibles:** abre la lista de números libres (con sus rangos), permite
+  copiarla o descargarla en TXT y generar una imagen PNG lista para compartir
+  por WhatsApp o redes sociales. La imagen se crea en el navegador y muestra
+  solo los números que todavía están disponibles.
+- **🧾 Comprobante:** al asignar números se muestra un comprobante PNG con los
+  números del comprador, el total, los abonos y el saldo. También se puede
+  abrir desde el detalle de cualquier número asignado, y descargar o compartir
+  desde el celular.
+
 ## Privacidad
 
 El enlace público es de solo lectura, pero cualquiera que lo tenga puede ver
